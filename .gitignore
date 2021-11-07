@@ -127,3 +127,11 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+/data/config.py
+/menubot-325413-627734386636.json
+/client_secret_519520524769-o3vai2vm41p5k42j5k6qo46o8b69aldd.apps.googleusercontent.com.json
+/.idea/modules.xml
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/vcs.xml
+/note.py
