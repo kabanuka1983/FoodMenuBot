@@ -1,0 +1,14 @@
+# DATABASE
+DB_USER = "somebody"
+DB_PASS = "somepass"
+DB_NAME = "menudb"
+HOST = "localhost"
+
+# BOT
+BOT_TOKEN = "111111111111:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+ADMIN_ID = "6546546546"
+
+# GOOGLE_API
+SERVICE_FILE = 'menubot-333333-65465654654654.json'
+SHARE_ADDRESS = 'kabanuka@gmail.com'
+FILE_NAME = 'test gsheet'
