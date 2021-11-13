@@ -12,7 +12,7 @@ from handlers.admin_handlers import admin_base_change, admin_panel, enter_name, 
 from keyboard.inline.choice_buttons import start_keyboard, dishes_menu_keyboard, approval_keyboard, \
     admin_start_keyboard, dishes_menu_approve_keyboard
 from utils import database, states
-from utils.order_to_sheets import add_order_to_sheet
+from utils.order_to_sheets import add_order_to_sheet, create_new_sheet
 
 db = database.DBCommands()
 
@@ -244,8 +244,14 @@ async def approve(call: CallbackQuery, state: FSMContext):
 @dp.callback_query_handler(text_contains='checkout', state=states.Order.checkout)
 async def b(call: CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(call.id)
-    order = await state.get_data()
-    add_order_to_sheet(user=call.from_user.full_name, order=order)
+    date = '12.11.2021'
+    customers = await db.get_customers()
+    dishes = await db.get_dishes()
+    create_new_sheet(date=date, customers=customers, dishes=dishes)
+
+    # order = await state.get_data()
+    # customer = await db.get_customer(call.from_user.id)
+    # add_order_to_sheet(user=customer.pseudonym, order=order)
     await state.reset_state()
     await call.message.delete()
 

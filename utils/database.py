@@ -62,6 +62,11 @@ class DBCommands:
         return dishes
 
     @staticmethod
+    async def get_customers():
+        customers = await Customer.query.gino.all()
+        return customers
+
+    @staticmethod
     async def delete_item(dish_name):
         await Dish.delete.where(Dish.name == dish_name).gino.status()
 
@@ -80,17 +85,17 @@ class DBCommands:
 
 async def create_db():
     await db.set_bind(f"postgres://{DB_USER}:{DB_PASS}@{HOST}/menudb")
-    await db.gino.drop_all()
+    # await db.gino.drop_all()
     await db.gino.create_all()
-    soup = Dish()
-    soup.date = datetime.now()
-    print(soup.date)
-    soup.name = 'Суп'
-    soup.price = 2000
-    borsch = Dish()
-    borsch.date = datetime.now()
-    borsch.name = 'Борщ'
-    borsch.price = 2500
-    await soup.create()
-    await borsch.create()
+    # soup = Dish()
+    # soup.date = datetime.now()
+    # print(soup.date)
+    # soup.name = 'Суп'
+    # soup.price = 2000
+    # borsch = Dish()
+    # borsch.date = datetime.now()
+    # borsch.name = 'Борщ'
+    # borsch.price = 2500
+    # await soup.create()
+    # await borsch.create()
 
