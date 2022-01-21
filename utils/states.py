@@ -26,6 +26,7 @@ class AdminMenu(StatesGroup):
     credit = State()
     credit_push = State()
     credit_upd = State()
+    cancel = State()
     rollback = State()
 
 

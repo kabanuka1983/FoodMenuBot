@@ -144,7 +144,7 @@ async def push_credits(call: CallbackQuery, state: FSMContext):
     customer = data['customers_data'][call.data[4:]]
     markup = await cancel_keyboard()
     data.update({'customers_data': customer})
-    text = f'Отправь сумму для зачисления на счет <b>{customer.pseudonym}</b>. \nТекущий баланс: <b>{customer.credit}</b>'
+    text = f'Отправь сумму для зачисления на счет <b>{customer.pseudonym}</b>. \nТекущий баланс: <b>{customer.credit}</b> грн.'
     current_message = await call.message.edit_text(text=text, reply_markup=markup, parse_mode='HTML')
     data.update({'order_message': [current_message]})
     await state.set_data(data)
@@ -156,11 +156,19 @@ async def credit_update(message: Message, state: FSMContext):
     string = message.text
     string_is_match = re.fullmatch(r'([+-]?\d+)', string)
     if string_is_match:
+        markup = await cancel_keyboard()
         data = await state.get_data()
         customer = data['customers_data']
         await db.credit_up(customer_id=customer.customer_id, val=int(string))
-        text = f'Пользователю {customer.pseudonym} было зачислено{string}'
-        await message
+        mutate_message: Message = data.pop('order_message')[0]
+        await mutate_message.delete()
+        await message.delete()
+        text = f'Пользователю <b>{customer.pseudonym}</b> было зачислено: <b>{string}</b> грн.'
+        current_message = await message.answer(text=text, reply_markup=markup, parse_mode='HTML')
+        data.update({'order_message': [current_message]})
+    else:
+        print(2)
+    await states.AdminMenu.cancel.set()
 
 
 # @dp.callback_query_handler(text_contains='db_mutation', state=states.AdminMenu.panel)

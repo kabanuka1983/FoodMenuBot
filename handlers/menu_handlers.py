@@ -313,6 +313,8 @@ async def cancel(call: Union[CallbackQuery, Message], state: FSMContext):
     if current_state == 'AdminMenu:credit_upd':
         await state.reset_state()
         await credit_mutation_abc(call=call, state=state)
+    if current_state == 'AdminMenu:cancel':
+
     if current_state == 'ChangeItem:item':
         await states.AdminMenu.panel.set()
         return await admin_base_change(call=call, state=state)
