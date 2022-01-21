@@ -163,7 +163,6 @@ async def credit_update(message: Message, state: FSMContext):
         await message
 
 
-
 # @dp.callback_query_handler(text_contains='db_mutation', state=states.AdminMenu.panel)
 # async def admin_base_change(call: Union[CallbackQuery, Message], state: FSMContext):
 #     db_dishes = await db.get_dishes()
