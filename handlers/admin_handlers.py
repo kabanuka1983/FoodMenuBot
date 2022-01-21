@@ -105,7 +105,7 @@ async def menu_parsing(message: Message, state: FSMContext):
         text = f'Не все строки имеют верный формат\n{wrong_strings}'
         current_message = await mutate_message.edit_text(text=text, reply_markup=markup)
         order.update({'order_message': [current_message]})
-        await message.delete()
+        await message.delete() # todo MessageNotModified
 
 
 @dp.callback_query_handler(text_contains='credit_mutation', state=states.AdminMenu.panel)
@@ -153,11 +153,11 @@ async def push_credits(call: CallbackQuery, state: FSMContext):
 
 @dp.message_handler(state=states.AdminMenu.credit_upd)
 async def credit_update(message: Message, state: FSMContext):
+    markup = await cancel_keyboard()
     string = message.text
     string_is_match = re.fullmatch(r'([+-]?\d+)', string)
+    data: dict = await state.get_data()
     if string_is_match:
-        markup = await cancel_keyboard()
-        data = await state.get_data()
         customer = data['customers_data']
         await db.credit_up(customer_id=customer.customer_id, val=int(string))
         mutate_message: Message = data.pop('order_message')[0]
@@ -166,9 +166,15 @@ async def credit_update(message: Message, state: FSMContext):
         text = f'Пользователю <b>{customer.pseudonym}</b> было зачислено: <b>{string}</b> грн.'
         current_message = await message.answer(text=text, reply_markup=markup, parse_mode='HTML')
         data.update({'order_message': [current_message]})
+        await states.AdminMenu.cancel.set()
     else:
-        print(2)
-    await states.AdminMenu.cancel.set()
+        mutate_message: Message = data.pop('order_message')[0]
+        text = f'Не верный формат, отправь целое число'
+        await mutate_message.delete()
+        current_message = await message.answer(text=text, reply_markup=markup)
+        data.update({'order_message': [current_message]})
+        await message.delete()
+    await state.set_data(data)
 
 
 # @dp.callback_query_handler(text_contains='db_mutation', state=states.AdminMenu.panel)
