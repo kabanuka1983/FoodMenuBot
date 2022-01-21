@@ -1,9 +1,10 @@
 import pygsheets
 import numpy as np
 
-from pygsheets import SpreadsheetNotFound, cell
+from pygsheets import SpreadsheetNotFound, cell, Cell
 
 from data.config import SERVICE_FILE, SHARE_ADDRESS, FILE_NAME
+from utils.database import Customer, Dish
 
 gc = pygsheets.authorize(service_file=SERVICE_FILE, scopes=('https://www.googleapis.com/auth/spreadsheets',
                                                             'https://www.googleapis.com/auth/drive'))
@@ -35,56 +36,126 @@ def create_file():
             return f'Файл "{FILE_NAME}" отсутствует и был создан \nрасшарен для: \n{SHARE_ADDRESS}'
 
 
-def create_new_sheet(date: str, customers, dishes):
+def create_new_sheet(date: str, customers: list, dishes: Dish):
+    # todo HttpError: <HttpError 400 when requesting
+    customers.sort(key=lambda a: a.pseudonym)
     sh = gc.open(FILE_NAME)
-    wks = sh.add_worksheet(date)
+    wks = sh.add_worksheet(title=date, index=0)
 
-    values = ['Наименование', 'Цена', 'Количество', 'x']
-    for customer in customers:
-        value = customer.pseudonym
-        values.append(value)
-    values.append('')
-    wks.insert_rows(row=0, values=[values])
-
-    num_col = len(values)
-    f_string = f'=SUM(E2:{wks.cell((2, num_col)).label})'
-
-    values = [['x', 'Всего сумма', '', ''], ['x', 'Всего кол-во', '', '']]
+    values = [['', 'С-до на конец', '=SUM(D1:E1)'],
+              ['', 'Всего сумма', '=SUM(D1:E1)'],
+              ['', 'С-до на начало', '=SUM(D1:E1)'],
+              ['', 'Всего кол-во', '=SUM(D1:E1)']]
     for value in values:
-        wks.insert_rows(row=1, values=[value])
+        wks.insert_rows(row=0, values=[value])
+        wks.merge_cells(start=(1, 1), end=(1, 2))
 
-    for dish in dishes:
-        values = [dish.name, dish.price, f_string]
+    values = ['Наименование', 'Цена', 'Количество']
+    wks.insert_rows(row=0, values=[values])
+    for dish in dishes[::-1]:
+        values = [dish.name, dish.price, '=SUM(D2:E2)']
         wks.insert_rows(row=1, values=[values])
 
-    rotating_cell = wks.cell((1, 4)).set_text_rotation(attribute='angle', value=90)
-    while rotating_cell.value:
-        rotating_cell = rotating_cell.neighbour(position='right')
-        rotating_cell.set_text_rotation(attribute='angle', value=90)
-    end_col = rotating_cell.col
-    wks.adjust_column_width(start=1, end=end_col)
+    number_of_dishes = len(dishes)
+    for customer in customers:
+        values = [customer.pseudonym]
+        for i in range(number_of_dishes):
+            values.append('')
+        values.append(f'=SUM(E2:E{number_of_dishes+1})')
+        values.append(customer.credit)
+        values.append('')
+        values.append(f'=E{number_of_dishes+3}-E{number_of_dishes+4}')
+        wks.insert_cols(col=4, values=values)
+        f_string = '=0'
+        for i in range(number_of_dishes):
+            num_row = i + 2
+            f_string += f'+E{num_row}*$B${num_row}'
+        wks.cell((number_of_dishes+4, 5)).set_value(f_string)
     wks.hide_dimensions(start=4, dimension='COLUMNS')
-    print(wks.get_row(1, include_tailing_empty=False))
+
+    rotating_cell = wks.cell((1, 5))
+    while rotating_cell.value:
+        rotating_cell.set_text_rotation(attribute='angle', value=90)
+        rotating_cell = rotating_cell.neighbour(position='right')
+    end_col = rotating_cell.col
+    wks.adjust_column_width(start=1, end=3)
+    wks.adjust_column_width(start=4, end=end_col, pixel_size=34)
 
 
-def add_order_to_sheet(user, order: dict):
-    print(order)
-    values = [user]
-    for k, v in order.items():
-        value = f'{k} x {v}'
-        values.append(value)
+def cancel_order(pseudonym, date: str, dishes):
     sh = gc.open(FILE_NAME)
-    wks = sh.worksheets()[-1]
-    # wks.insert_rows(row=0, number=2, values=[values])
-    a = wks.range('A1:C5', returnas='cell')
-    for b in a:
-        for c in b:
-            print(c.col)
-    print(a)
-    # names = np.array([f[0] for f in a])
-    # cols = np.array(['Имя', 'Суп', 'Борщ'])
-    # b = np.array(a)
-    # print(b[names == 'Donald Trump', cols == 'Борщ'])
+    wks = sh.worksheet(property='title', value=date)
+    user_cell = wks.find(pseudonym, rows=(1, 1), matchEntireCell=True)[0]
+    start_cell = (user_cell.row + 1, user_cell.col)
+    end_cell = (user_cell.row + len(dishes), user_cell.col)
+    total = wks.cell((user_cell.row + len(dishes) + 3, user_cell.col)).value_unformatted
+    wks.clear(start_cell, end_cell)
+    return int(total)
 
-# {'Сало': 1, 'Хлеб': 1, 'Рыба': 1}
+
+def rollback():
+    pass
+
+
+def add_order_to_sheet(customer, date, order: dict, dishes):
+    np_dishes = np.array([d.name for d in dishes])
+
+    sh = gc.open(FILE_NAME)
+    wks = sh.worksheet(property='title', value=date)
+    try:
+        user_cell = wks.find(customer.pseudonym, rows=(1, 1), matchEntireCell=True)[0]
+    except IndexError:
+        user_cell = add_new_customer_to_sheet(customer=customer, date=date, dishes=dishes)
+    start_cell = (user_cell.row + 1, user_cell.col)
+    end_cell = (user_cell.row + len(dishes), user_cell.col)
+    order_range = wks.get_values(start_cell, end_cell, returnas='cell', include_tailing_empty_rows=True)
+    np_range = np.array(order_range)
+    order.pop('order_message')
+    for k, v in order.items():
+        if v[1]:
+            order_cell = np_range[np_dishes == k][0][0].label
+            wks.update_value(order_cell, v[1])
+    total = wks.cell((user_cell.row + len(dishes) + 3, user_cell.col)).value_unformatted
+    return int(total)
+
+
+def get_order_from_sheet(pseudonym: Customer.pseudonym, date, dishes):
+    np_dishes = np.array([d.name for d in dishes])
+
+    sh = gc.open(FILE_NAME)
+    wks = sh.worksheet(property='title', value=date)
+    user_cell = wks.find(pseudonym, rows=(1, 1), matchEntireCell=True)[0]
+    start_cell = (user_cell.row + 1, user_cell.col)
+    end_cell = (user_cell.row + len(dishes), user_cell.col)
+    order_range = wks.get_values(start_cell, end_cell, returnas='cell', include_tailing_empty_rows=True)
+    np_range = np.array(order_range)
+    order_dict = {}
+    for dish in dishes:
+        d = dish.name
+        dval = np_range[np_dishes == d][0][0].value_unformatted
+        order_dict[d] = dval if dval != '' else None
+    return order_dict
+
+
+def add_new_customer_to_sheet(customer: Customer, date, dishes: Dish):
+    sh = gc.open(FILE_NAME)
+    wks = sh.worksheet(property='title', value=date)
+    number_of_dishes = len(dishes)
+    values = [customer.pseudonym]
+    for i in range(number_of_dishes):
+        values.append('')
+    values.append(f'=SUM(E2:E{number_of_dishes + 1})')
+    values.append(customer.credit)
+    values.append('')
+    values.append(f'=E{number_of_dishes + 3}-E{number_of_dishes + 4}')
+    wks.insert_cols(col=4, values=values)
+    f_string = '=0'
+    for i in range(number_of_dishes):
+        num_row = i + 2
+        f_string += f'+E{num_row}*$B${num_row}'
+    wks.cell((number_of_dishes + 4, 5)).set_value(f_string)
+    return Cell((1, 5))
+
+
+
 # todo pygsheets.exceptions.CellNotFound

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from aiogram.types import User
 from gino import Gino
-from sqlalchemy import sql, Column, Text, Float, Integer, Sequence, BigInteger, String, Date
+from sqlalchemy import sql, Column, Text, Float, Integer, Sequence, BigInteger, String, Date, ForeignKey
 
 from data.config import DB_USER, DB_PASS, HOST
 
@@ -31,11 +31,12 @@ class Customer(db.Model):
     customer_id = Column(BigInteger, Sequence('customer_name_app_seq'), primary_key=True)
     pseudonym = Column(String(100))
     full_name = Column(String(100))
+    current_order = Column(Integer)
     credit = Column(Integer)
 
     def __repr__(self):
         return f"<Customer(id='{self.id}', full_name='{self.full_name}', " \
-               f"username='{self.username}', credit='{self.credit}')>"
+               f"pseudonym='{self.pseudonym}', credit='{self.credit}')>"
 
 
 class DBCommands:
@@ -52,6 +53,7 @@ class DBCommands:
         new_customer.customer_id = customer.id
         new_customer.pseudonym = customer_pseudonym
         new_customer.full_name = customer.full_name
+        new_customer.current_order = 0
         new_customer.credit = 0
         await new_customer.create()
         return new_customer
@@ -60,6 +62,11 @@ class DBCommands:
     async def get_dishes():
         dishes = await Dish.query.gino.all()
         return dishes
+
+    @staticmethod
+    async def get_menu_date():
+        dish = await Dish.query.gino.first()
+        return dish.date
 
     @staticmethod
     async def get_customers():
@@ -82,20 +89,29 @@ class DBCommands:
     async def del_dish_table():
         await Dish.delete.gino.all()
 
+    @staticmethod
+    async def set_current_order(customer: Customer):
+        await Customer.update.values(current_order=1).where(Customer.customer_id == customer.customer_id).gino.status()
+
+    @staticmethod
+    async def cancel_current_order():
+        await Customer.update.values(current_order=0).gino.status()
+
+    async def credit_up(self, customer_id, val: int):
+        customer = await self.get_customer(customer_id=customer_id)
+        new_credit = int(customer.credit) + val
+        await Customer.update.values(credit=new_credit).where(
+            Customer.customer_id == customer.customer_id).gino.status()
+
+    async def credit_down(self, customer_id, val: int):
+        customer = await self.get_customer(customer_id=customer_id)
+        new_credit = int(customer.credit) - val
+        await Customer.update.values(credit=new_credit).where(
+            Customer.customer_id == customer.customer_id).gino.status()
+
 
 async def create_db():
     await db.set_bind(f"postgres://{DB_USER}:{DB_PASS}@{HOST}/menudb")
     # await db.gino.drop_all()
     await db.gino.create_all()
-    # soup = Dish()
-    # soup.date = datetime.now()
-    # print(soup.date)
-    # soup.name = 'Суп'
-    # soup.price = 2000
-    # borsch = Dish()
-    # borsch.date = datetime.now()
-    # borsch.name = 'Борщ'
-    # borsch.price = 2500
-    # await soup.create()
-    # await borsch.create()
 

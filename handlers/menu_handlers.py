@@ -1,4 +1,5 @@
 from asyncio.tasks import sleep
+from datetime import datetime
 from typing import Union
 
 from aiogram import types
@@ -8,11 +9,12 @@ from aiogram.types import CallbackQuery, Message
 
 from data.config import ADMIN_ID
 from data.loader import dp, bot
-from handlers.admin_handlers import admin_base_change, admin_panel, enter_name, enter_price, mutation
+from handlers.admin_handlers import admin_base_change, admin_panel, credit_mutation_abc
+# , enter_name, enter_price, mutation
 from keyboard.inline.choice_buttons import start_keyboard, dishes_menu_keyboard, approval_keyboard, \
     admin_start_keyboard, dishes_menu_approve_keyboard
 from utils import database, states
-from utils.order_to_sheets import add_order_to_sheet, create_new_sheet
+from utils.order_to_sheets import add_order_to_sheet, create_new_sheet, get_order_from_sheet, cancel_order
 
 db = database.DBCommands()
 
@@ -73,7 +75,16 @@ async def wrong(message: Message, state: FSMContext):
 async def menu_command(message: types.Message, state: FSMContext):
     old_customer = await db.get_customer(message.from_user.id)
     if old_customer:
-        order: dict = await state.get_data()
+        # data = {'order':{}, 'cust':{}}
+        # await state.set_data(data)
+        # data: dict = await state.get_data()
+        # print(data)
+        # order: dict = data['order']
+        # order.update({'llkdjf':3321})
+        # await state.set_data(order)
+        # data: dict = await state.get_data()
+        # print(data)
+        # order: dict = await state.get_data()
         await delete_messages(state=state)
         await state.reset_state()
         await start_choice(message, state)
@@ -105,8 +116,9 @@ async def start_choice(message: Union[CallbackQuery, Message], state: FSMContext
     await state.set_data(order)
 
 
-@dp.callback_query_handler(text_contains='info')
+@dp.callback_query_handler(text_contains='info', state=states.Order.main)
 async def info(call: CallbackQuery):
+    await bot.answer_callback_query(call.id)
     print(2)
 
 
@@ -127,7 +139,6 @@ async def dishes_choice(call: CallbackQuery, state: FSMContext):
         await call.message.delete()
     except:
         pass
-
     for dish in db_dishes:
         markup = await dishes_menu_keyboard(dish.name)
         order_dish = order.get(dish.name)
@@ -147,8 +158,8 @@ async def dishes_choice(call: CallbackQuery, state: FSMContext):
         quantity = v[1]
         if quantity:
             dish = get_dish_from_list(db_dishes=db_dishes, dish=k)
-            order_string += f'{k} {dish.price}x{quantity}: {(dish.price) * quantity}грн.\n'
-            total += (dish.price) * quantity
+            order_string += f'{k} {dish.price}x{quantity}: {dish.price * quantity}грн.\n'
+            total += dish.price * quantity
     text = f'Ваш выбор \n\n{order_string}\nИтоговая стоимость {total} грн.'
     markup1 = await dishes_menu_approve_keyboard()
     order_message = await call.message.answer(text=text, reply_markup=markup1)
@@ -210,18 +221,19 @@ async def mutate_order_message(state: FSMContext):
         quantity = v[1]
         if quantity:
             price = v[2]
-            order_string += f'{k} {price}x{quantity}: {(price) * quantity}грн.\n'
-            total += (price) * quantity
+            order_string += f'{k} {price}x{quantity}: {price * quantity}грн.\n'
+            total += price * quantity
     text = f'Ваш выбор \n\n{order_string}\nИтоговая стоимость {total} грн.'
     markup1 = await dishes_menu_approve_keyboard()
-    order_message = await mutate_message[0].edit_text(text=text, reply_markup=markup1)
-    order.update({'order_message': [order_message]})
+    await mutate_message[0].edit_text(text=text, reply_markup=markup1)
 
 
 @dp.callback_query_handler(text_contains='approve', state=states.Order.dishes_dict)
 async def approve(call: CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(call.id)
     db_dishes = await db.get_dishes()
+    customer = await db.get_customer(call.from_user.id)
+    date: str = datetime.now().date().strftime('%d %m %Y')
     order: dict = await state.get_data()
     mutate_message = order.pop('order_message')
     markup = await approval_keyboard()
@@ -237,21 +249,36 @@ async def approve(call: CallbackQuery, state: FSMContext):
         message = v[0]
         await message.delete()
     text = f'Ваш выбор \n\n{order_string}\nИтоговая стоимость {total} грн.'
+    if customer.current_order == 1:
+        current_order_dict = get_order_from_sheet(pseudonym=customer.pseudonym, date=date, dishes=db_dishes)
+        current_order_string = ''
+        current_total = 0
+        for d, q in current_order_dict.items():
+            if q:
+                dish = get_dish_from_list(db_dishes=db_dishes, dish=d)
+                current_order_string += f'{d} {dish.price}x{q}: {dish.price * q}грн.\n'
+                current_total += dish.price * q
+        text = f'Вы уже сделали заказ сегодня\nПодтвердите, чтобы отменить текущий заказ и принять новый\n❌\n' \
+               f'{current_order_string}Итоговая стоимость {current_total} грн.\n\n✅\n'+text
+    # todo pygsheets.exceptions.WorksheetNotFound
     await mutate_message[0].edit_text(text=text, reply_markup=markup)
     await states.Order.checkout.set()
 
 
 @dp.callback_query_handler(text_contains='checkout', state=states.Order.checkout)
-async def b(call: CallbackQuery, state: FSMContext):
+async def fin_approve(call: CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(call.id)
-    date = '12.11.2021'
-    customers = await db.get_customers()
+    date: str = datetime.now().date().strftime('%d %m %Y')
     dishes = await db.get_dishes()
-    create_new_sheet(date=date, customers=customers, dishes=dishes)
+    order: dict = await state.get_data()
+    customer = await db.get_customer(call.from_user.id)
+    if customer.current_order == 1:
+        credit_back = cancel_order(pseudonym=customer.pseudonym, date=date, dishes=dishes)
+        await db.credit_up(customer_id=customer.customer_id, val=credit_back)
+    credit = add_order_to_sheet(customer=customer, date=date, order=order, dishes=dishes)
+    await db.credit_down(customer_id=customer.customer_id, val=credit)
+    await db.set_current_order(customer=customer)
 
-    # order = await state.get_data()
-    # customer = await db.get_customer(call.from_user.id)
-    # add_order_to_sheet(user=customer.pseudonym, order=order)
     await state.reset_state()
     await call.message.delete()
 
@@ -266,42 +293,55 @@ async def cancel(call: Union[CallbackQuery, Message], state: FSMContext):
         await state.set_data(order)
         await delete_messages(state=state)
         await state.reset_state()
-        await start_choice(message=call, state=state)
+        return await start_choice(message=call, state=state)
     if current_state == 'Order:checkout':
         await call.message.delete()
         await states.Order.dishes_dict.set()
-        await dishes_choice(call=call, state=state)
+        return await dishes_choice(call=call, state=state)
     if current_state == 'AdminMenu:change':
         await state.reset_state()
-        await admin_panel(call=call, state=state)
+        return await admin_panel(call=call, state=state)
     if current_state == 'AdminMenu:panel':
         await state.reset_state()
-        await start_choice(message=call, state=state)
+        return await start_choice(message=call, state=state)
+    if current_state == 'AdminMenu:credit':
+        await state.reset_state()
+        return await admin_panel(call=call, state=state)
+    if current_state == 'AdminMenu:credit_push':
+        await state.reset_state()
+        await credit_mutation_abc(call=call, state=state)
+    if current_state == 'AdminMenu:credit_upd':
+        await state.reset_state()
+        await credit_mutation_abc(call=call, state=state)
     if current_state == 'ChangeItem:item':
         await states.AdminMenu.panel.set()
-        await admin_base_change(call=call, state=state)
-    if current_state == 'NewItem:price':
-        await states.AdminMenu.change.set()
-        await enter_name(call=call, state=state)
+        return await admin_base_change(call=call, state=state)
+    # if current_state == 'NewItem:price':
+    #     await states.AdminMenu.change.set()
+    #     await enter_name(call=call, state=state)
     if current_state == 'NewItem:name':
         await state.reset_state()
         await states.AdminMenu.panel.set()
-        await admin_base_change(call=call, state=state)
-    if current_state == 'NewItem:approve':
-        await states.NewItem.name.set()
-        await enter_price(message=call, state=state)
-    if current_state == 'ChangeItem:price':
-        await states.ChangeItem.item.set()
-        await mutation(call=call, state=state)
-    if current_state == 'ChangeItem:name':
-        await states.ChangeItem.item.set()
-        await mutation(call=call, state=state)
+        return await admin_base_change(call=call, state=state)
+    # if current_state == 'NewItem:approve':
+    #     await states.NewItem.name.set()
+    #     await enter_price(message=call, state=state)
+    # if current_state == 'ChangeItem:price':
+    #     await states.ChangeItem.item.set()
+    #     await mutation(call=call, state=state)
+    # if current_state == 'ChangeItem:name':
+    #     await states.ChangeItem.item.set()
+    #     await mutation(call=call, state=state)
+    if current_state == 'AdminMenu:instance_menu':
+        await state.reset_state()
+        return await admin_panel(call=call, state=state)
     if not current_state:
-        await start_choice(message=call, state=state)
+        return await start_choice(message=call, state=state)
 
 
 async def delete_messages(state):
     order: dict = await state.get_data()
+    order.pop('customers_data', None)
     for k, v in order.items():
         message = v[0]
         try:
@@ -317,3 +357,4 @@ def get_dish_from_list(db_dishes, dish):
 
 
 # todo aiogram.utils.exceptions.MessageNotModified
+# todo raise WorksheetNotFound
