@@ -49,6 +49,8 @@ async def admin_panel_keyboard():
     markup = InlineKeyboardMarkup(row_width=1)
     markup.row(InlineKeyboardButton(text='Внести изменения в меню',
                                     callback_data='db_mutation'))
+    markup.row(InlineKeyboardButton(text='Зачислить оплату',
+                                    callback_data='credit_mutation'))
     markup.row(InlineKeyboardButton(text='⬅Назад',
                                     callback_data='cancel'))
     return markup
@@ -69,6 +71,22 @@ async def mutation_keyboard():
     markup.row(InlineKeyboardButton(text='Изменить наименование', callback_data='name'))
     markup.row(InlineKeyboardButton(text='Изменить цену', callback_data='price'))
     markup.row(InlineKeyboardButton(text='Удалить', callback_data='delete'))
+    markup.row(InlineKeyboardButton(text='⬅Назад', callback_data='cancel'))
+    return markup
+
+
+async def credit_mutation_abc_keyboard(customers: dict):
+    markup = InlineKeyboardMarkup(row_width=2)
+    for l in list(customers.keys()):
+        markup.insert(InlineKeyboardButton(text=l, callback_data=f'letter{l}'))
+    markup.row(InlineKeyboardButton(text='⬅Назад', callback_data='cancel'))
+    return markup
+
+
+async def credit_names_keyboard(customers: dict):
+    markup = InlineKeyboardMarkup(row_width=1)
+    for k, v in customers.items():
+        markup.insert(InlineKeyboardButton(text=v.pseudonym, callback_data=f'push{v.pseudonym}'))
     markup.row(InlineKeyboardButton(text='⬅Назад', callback_data='cancel'))
     return markup
 

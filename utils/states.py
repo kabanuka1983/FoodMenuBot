@@ -22,6 +22,11 @@ class ChangeItem(StatesGroup):
 class AdminMenu(StatesGroup):
     panel = State()
     change = State()
+    instance_menu = State()
+    credit = State()
+    credit_push = State()
+    credit_upd = State()
+    rollback = State()
 
 
 class RegMenu(StatesGroup):
