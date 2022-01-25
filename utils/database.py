@@ -1,8 +1,6 @@
-from datetime import datetime
-
 from aiogram.types import User
 from gino import Gino
-from sqlalchemy import sql, Column, Text, Float, Integer, Sequence, BigInteger, String, Date, ForeignKey
+from sqlalchemy import sql, Column, Integer, Sequence, BigInteger, String, Date
 
 from data.config import DB_USER, DB_PASS, HOST
 
@@ -74,12 +72,13 @@ class DBCommands:
         return customers
 
     @staticmethod
-    async def delete_item(dish_name):
-        await Dish.delete.where(Dish.name == dish_name).gino.status()
+    async def get_customer_bypseudonym(pseudonym):
+        customer = await Customer.query.where(Customer.pseudonym == pseudonym).gino.first()
+        return customer
 
     @staticmethod
-    async def update_name(dish_name, new_name):
-        await Dish.update.values(name=new_name).where(Dish.name == dish_name).gino.status()
+    async def delete_item(dish_name):
+        await Dish.delete.where(Dish.name == dish_name).gino.status()
 
     @staticmethod
     async def update_price(dish_name, new_price):
@@ -97,11 +96,20 @@ class DBCommands:
     async def cancel_current_order():
         await Customer.update.values(current_order=0).gino.status()
 
-    async def credit_up(self, customer_id, val: int):
-        customer = await self.get_customer(customer_id=customer_id)
+    @staticmethod
+    async def update_pseudonym(customer, pseudonym):
+        await Customer.update.values(pseudonym=pseudonym).\
+            where(Customer.customer_id == customer.customer_id).gino.status()
+
+    async def credit_up(self, customer_id, val: int, customer_id_is_pseudonym=False):
+        if customer_id_is_pseudonym:
+            customer = await self.get_customer_bypseudonym(pseudonym=customer_id)
+        else:
+            customer = await self.get_customer(customer_id=customer_id)
         new_credit = int(customer.credit) + val
         await Customer.update.values(credit=new_credit).where(
             Customer.customer_id == customer.customer_id).gino.status()
+        return customer
 
     async def credit_down(self, customer_id, val: int):
         customer = await self.get_customer(customer_id=customer_id)

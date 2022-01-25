@@ -1,7 +1,7 @@
 import pygsheets
 import numpy as np
 
-from pygsheets import SpreadsheetNotFound, cell, Cell
+from pygsheets import SpreadsheetNotFound, Cell
 
 from data.config import SERVICE_FILE, SHARE_ADDRESS, FILE_NAME
 from utils.database import Customer, Dish
@@ -93,8 +93,27 @@ def cancel_order(pseudonym, date: str, dishes):
     return int(total)
 
 
-def rollback():
-    pass
+def get_rollback(date):
+    sh = gc.open(FILE_NAME)
+    wks = sh.worksheet(property='title', value=date)
+
+    total_row: Cell = wks.find('Всего сумма', cols=(1, 1), matchEntireCell=True)[0]
+    total_row_index = total_row.row
+    order_cells = [c for c in wks.get_row(row=total_row_index, returnas='cell', include_tailing_empty=False)[4:]
+                   if int(c.value) > 0]
+
+    if len(order_cells) > 0:
+        order_pseudonyms = [wks.cell((1, c.col)).value for c in order_cells]
+        rollback_dict = dict(zip(order_pseudonyms, [int(c.value) for c in order_cells]))
+        return rollback_dict
+    else:
+        return None
+
+
+def delete_worksheet(date):
+    sh = gc.open(FILE_NAME)
+    wks = sh.worksheet(property='title', value=date)
+    sh.del_worksheet(wks)
 
 
 def add_order_to_sheet(customer, date, order: dict, dishes):
@@ -125,6 +144,7 @@ def get_order_from_sheet(pseudonym: Customer.pseudonym, date, dishes):
     sh = gc.open(FILE_NAME)
     wks = sh.worksheet(property='title', value=date)
     user_cell = wks.find(pseudonym, rows=(1, 1), matchEntireCell=True)[0]
+    # IndexError: list index out of range если есть 1 в Customer.current_order, но нет имени в таблице
     start_cell = (user_cell.row + 1, user_cell.col)
     end_cell = (user_cell.row + len(dishes), user_cell.col)
     order_range = wks.get_values(start_cell, end_cell, returnas='cell', include_tailing_empty_rows=True)
@@ -156,6 +176,13 @@ def add_new_customer_to_sheet(customer: Customer, date, dishes: Dish):
     wks.cell((number_of_dishes + 4, 5)).set_value(f_string)
     return Cell((1, 5))
 
+
+def update_worksheet_pseudonym(old_pseudonym, new_pseudonym, date: str):
+    sh = gc.open(FILE_NAME)
+    wks = sh.worksheet(property='title', value=date)
+    pseudonym_cell: list = wks.find(old_pseudonym)
+    if len(pseudonym_cell) > 0:
+        pseudonym_cell[0].set_value(new_pseudonym)
 
 
 # todo pygsheets.exceptions.CellNotFound
