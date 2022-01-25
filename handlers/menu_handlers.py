@@ -1,4 +1,3 @@
-from asyncio.tasks import sleep
 from datetime import datetime
 from typing import Union
 
@@ -6,15 +5,17 @@ from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import Command
 from aiogram.types import CallbackQuery, Message
+from pygsheets import WorksheetNotFound
 
 from data.config import ADMIN_ID
 from data.loader import dp, bot
-from handlers.admin_handlers import admin_base_change, admin_panel, credit_mutation_abc
-# , enter_name, enter_price, mutation
-from keyboard.inline.choice_buttons import start_keyboard, dishes_menu_keyboard, approval_keyboard, \
-    admin_start_keyboard, dishes_menu_approve_keyboard
+from handlers.admin_handlers import admin_panel, credit_mutation_abc
+from keyboard.inline.choice_buttons import start_keyboard, dishes_menu_keyboard, approval_keyboard_reverse, \
+    admin_start_keyboard, approval_keyboard, cancel_keyboard
 from utils import database, states
-from utils.order_to_sheets import add_order_to_sheet, create_new_sheet, get_order_from_sheet, cancel_order
+from utils.database import Customer
+from utils.order_to_sheets import add_order_to_sheet, get_order_from_sheet, cancel_order, \
+    update_worksheet_pseudonym
 
 db = database.DBCommands()
 
@@ -25,14 +26,21 @@ async def registration_start(message: Message, state: FSMContext):
     if old_customer:
         return
     await states.RegMenu.reg_name.set()
+    await registration_name(message=message, state=state)
+
+
+async def registration_name(message: Union[Message, CallbackQuery], state):
     order: dict = await state.get_data()
     text = 'Введи имя'
-    order_message = await message.answer(text=text)
+    if isinstance(message, Message):
+        order_message = await message.answer(text=text)
+    elif isinstance(message, CallbackQuery):
+        order_message = await message.message.edit_text(text=text)
     order.update({'order_message': [order_message]})
     await state.set_data(order)
 
 
-@dp.message_handler(regexp=r"^([А-Я,а-я-Ёё]+)$", state=states.RegMenu.reg_name)
+@dp.message_handler(regexp=r"^([А-Я,а-я-Ёё]+)$", state=[states.RegMenu.reg_name, states.ChangePseudonym.name])
 async def registration(message: Message, state: FSMContext):
     order: dict = await state.get_data()
     await delete_messages(state=state)
@@ -42,31 +50,57 @@ async def registration(message: Message, state: FSMContext):
     order_message = await message.answer(text=text)
     order.update({'order_message': [order_message]})
     await state.set_data(order)
-    await states.RegMenu.reg_surname.set()
+    current_state = await state.get_state()
+    if current_state == 'RegMenu:reg_name':
+        await states.RegMenu.reg_surname.set()
+    else:
+        await states.ChangePseudonym.surname.set()
 
 
-@dp.message_handler(regexp=r"^([А-Я,а-я-Ёё]+)$", state=states.RegMenu.reg_surname)
+@dp.message_handler(regexp=r"^([А-Я,а-я-Ёё]+)$", state=[states.RegMenu.reg_surname, states.ChangePseudonym.surname])
 async def registration_fin(message: Message, state: FSMContext):
     order: dict = await state.get_data()
     surname: str = message.text
     name: str = order.pop('name')
+    date = datetime.now().date()
+    date_str = date.strftime('%d %m %Y')
     pseudonym = f'{surname.capitalize()} {name.capitalize()}'
     await delete_messages(state=state)
     customer = message.from_user
-    await db.add_new_customer(customer=customer, customer_pseudonym=pseudonym)
+    current_state = await state.get_state()
+
+    if current_state == 'RegMenu:reg_surname':
+        await db.add_new_customer(customer=customer, customer_pseudonym=pseudonym)
+    else:
+        old_customer: Customer = await db.get_customer(customer.id)
+        menu_date = await db.get_menu_date()
+        menu_is_instance = date == menu_date
+        if old_customer:
+            if menu_is_instance:
+                try:
+                    update_worksheet_pseudonym(old_pseudonym=old_customer.pseudonym, new_pseudonym=pseudonym, date=date_str)
+                except WorksheetNotFound:
+                    pass
+            await db.update_pseudonym(customer=old_customer, pseudonym=pseudonym)
+        else:
+            return
     text = f'Вы зарегистрировались под именем:\n\n{pseudonym}'
-    await message.answer(text=text)
+    await message.answer(text=text, disable_notification=True)
     await state.reset_state()
 
 
-@dp.message_handler(state=[states.RegMenu.reg_name, states.RegMenu.reg_surname])
+@dp.message_handler(state=[states.RegMenu.reg_name, states.RegMenu.reg_surname,
+                           states.ChangePseudonym.name, states.ChangePseudonym.surname])
 async def wrong(message: Message, state: FSMContext):
     current_state = await state.get_state()
+    order: dict = await state.get_data()
     name = 'фамилию'
-    if current_state == 'RegMenu:reg_name':
+    if current_state == 'RegMenu:reg_name' or current_state == 'ChangePseudonym:name':
         name = 'имя'
     text = f'Не верный формат ввода, попробуй ещё раз ввести {name} кириллицей без пробелов'
-    await message.answer(text=text)
+    order_message = await message.answer(text=text)
+    order.update({'order_message': [order_message]})
+    await state.set_data(order)
     await message.delete()
 
 
@@ -75,27 +109,13 @@ async def wrong(message: Message, state: FSMContext):
 async def menu_command(message: types.Message, state: FSMContext):
     old_customer = await db.get_customer(message.from_user.id)
     if old_customer:
-        # data = {'order':{}, 'cust':{}}
-        # await state.set_data(data)
-        # data: dict = await state.get_data()
-        # print(data)
-        # order: dict = data['order']
-        # order.update({'llkdjf':3321})
-        # await state.set_data(order)
-        # data: dict = await state.get_data()
-        # print(data)
-        # order: dict = await state.get_data()
         await delete_messages(state=state)
         await state.reset_state()
         await start_choice(message, state)
+        await message.delete()
     else:
         await registration_start(message=message, state=state)
-
-
-# @dp.callback_query_handler(text_contains='start_menu', state=states.Order.dishes_dict)
-# async def to_start(call: CallbackQuery, state: FSMContext):
-#     await state.reset_state()
-#     await start_choice(call)
+        await message.delete()
 
 
 async def start_choice(message: Union[CallbackQuery, Message], state: FSMContext):
@@ -108,7 +128,7 @@ async def start_choice(message: Union[CallbackQuery, Message], state: FSMContext
         text = '"Панель администратора"-для входа в панель администратора\n ' \
                '"Меню блюд"-для выбора блюд\n "Инфо"-для просмотра команд'
     if isinstance(message, Message):
-        order_message = await message.answer(text=text, reply_markup=markup)
+        order_message = await message.answer(text=text, reply_markup=markup, disable_notification=True)
     if isinstance(message, CallbackQuery):
         await bot.answer_callback_query(message.id)
         order_message = await message.message.edit_text(text=text, reply_markup=markup)
@@ -117,56 +137,71 @@ async def start_choice(message: Union[CallbackQuery, Message], state: FSMContext
 
 
 @dp.callback_query_handler(text_contains='info', state=states.Order.main)
-async def info(call: CallbackQuery):
+async def info(call: CallbackQuery, state=FSMContext):
     await bot.answer_callback_query(call.id)
-    print(2)
+    data: dict = await state.get_data()
+    text = '/change_reg_name'
+    order_message = await call.message.edit_text(text=text)
+    data.update({'order_message': [order_message]})
+    await state.set_data(data)
 
 
 @dp.callback_query_handler(text_contains='dish_menu', state=states.Order.dishes_dict)
 @dp.callback_query_handler(text_contains='dish_menu', state=states.Order.main)
 async def dishes_choice(call: CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(call.id)
-    order: dict = await state.get_data()
-    db_dishes = await db.get_dishes()
-    mutate_message = order.pop('order_message', None)
-    if mutate_message:
+
+    menu_date = await db.get_menu_date()
+    date = datetime.now().date()
+    menu_is_instance = date == menu_date
+
+    if menu_is_instance:
+        order: dict = await state.get_data()
+        db_dishes = await db.get_dishes()
+        mutate_message = order.pop('order_message', None)
+        if mutate_message:
+            try:
+                await mutate_message[0].delete()
+            except:
+                pass
+
         try:
-            await mutate_message[0].delete()
+            await call.message.delete()
         except:
             pass
+        for dish in db_dishes:
+            markup = await dishes_menu_keyboard(dish.name)
+            order_dish = order.get(dish.name)
+            quantity = None
+            if order_dish:
+                quantity = order_dish[1]
+            if quantity:
+                text_item = f'{dish.name}: {dish.price}грн. ✅ x {quantity}'
+            else:
+                text_item = f'{dish.name}: {dish.price} грн.'
+            menu_message = await call.message.answer(text=text_item, reply_markup=markup, disable_notification=True)
+            order.update({f'{dish.name}': [menu_message, quantity, dish.price]})
 
-    try:
-        await call.message.delete()
-    except:
-        pass
-    for dish in db_dishes:
-        markup = await dishes_menu_keyboard(dish.name)
-        order_dish = order.get(dish.name)
-        quantity = None
-        if order_dish:
-            quantity = order_dish[1]
-        if quantity:
-            text_item = f'{dish.name}: {dish.price}грн. ✅ x {quantity}'
-        else:
-            text_item = f'{dish.name}: {dish.price} грн.'
-        menu_message = await call.message.answer(text=text_item, reply_markup=markup)
-        order.update({f'{dish.name}': [menu_message, quantity, dish.price]})
+        order_string = ''
+        total = 0
+        for k, v in order.items():
+            quantity = v[1]
+            if quantity:
+                dish = get_dish_from_list(db_dishes=db_dishes, dish=k)
+                order_string += f'{k} {dish.price}x{quantity}: {dish.price * quantity}грн.\n'
+                total += dish.price * quantity
+        text = f'Ваш выбор \n\n{order_string}\nИтоговая стоимость {total} грн.'
+        markup1 = await approval_keyboard()
+        order_message = await call.message.answer(text=text, reply_markup=markup1, disable_notification=True)
+        order.update({'order_message': [order_message]})
 
-    order_string = ''
-    total = 0
-    for k, v in order.items():
-        quantity = v[1]
-        if quantity:
-            dish = get_dish_from_list(db_dishes=db_dishes, dish=k)
-            order_string += f'{k} {dish.price}x{quantity}: {dish.price * quantity}грн.\n'
-            total += dish.price * quantity
-    text = f'Ваш выбор \n\n{order_string}\nИтоговая стоимость {total} грн.'
-    markup1 = await dishes_menu_approve_keyboard()
-    order_message = await call.message.answer(text=text, reply_markup=markup1)
-    order.update({'order_message': [order_message]})
-
-    await state.set_data(order)
-    await states.Order.dishes_dict.set()
+        await state.set_data(order)
+        await states.Order.dishes_dict.set()
+    else:
+        markup = await cancel_keyboard()
+        text = f'Меню на <b>{date.strftime("%d.%m.%Y")}</b> еще <b>не готово</b>, попробуйте немного позже'
+        await call.message.edit_text(text=text, reply_markup=markup, parse_mode='HTML')
+        await states.Order.dishes_dict.set()
 
 
 @dp.callback_query_handler(text_contains='plus', state=states.Order.dishes_dict)
@@ -224,7 +259,7 @@ async def mutate_order_message(state: FSMContext):
             order_string += f'{k} {price}x{quantity}: {price * quantity}грн.\n'
             total += price * quantity
     text = f'Ваш выбор \n\n{order_string}\nИтоговая стоимость {total} грн.'
-    markup1 = await dishes_menu_approve_keyboard()
+    markup1 = await approval_keyboard()
     await mutate_message[0].edit_text(text=text, reply_markup=markup1)
 
 
@@ -236,7 +271,7 @@ async def approve(call: CallbackQuery, state: FSMContext):
     date: str = datetime.now().date().strftime('%d %m %Y')
     order: dict = await state.get_data()
     mutate_message = order.pop('order_message')
-    markup = await approval_keyboard()
+    markup = await approval_keyboard_reverse()
 
     order_string = ''
     total = 0
@@ -280,7 +315,29 @@ async def fin_approve(call: CallbackQuery, state: FSMContext):
     await db.set_current_order(customer=customer)
 
     await state.reset_state()
-    await call.message.delete()
+    text = call.message.text
+    await call.message.edit_text(text=text)
+
+
+@dp.message_handler(Command(['change_reg_name'], prefixes='/'), state='*')
+async def change_pseudonym(message: Message, state: FSMContext):
+    await delete_messages(state=state)
+    customer: Customer = await db.get_customer(message.from_user.id)
+    if customer:
+        markup = await approval_keyboard()
+        text = f'Ты обнаружил ошибку в имени:\n{customer.pseudonym} ?\nЖелаешь изменить его?'
+        await states.ChangePseudonym.initial.set()
+        await message.delete()
+        await message.answer(text=text, reply_markup=markup)
+    else:
+        await states.RegMenu.reg_name.set()
+        await registration_name(message=message, state=state)
+
+
+@dp.callback_query_handler(text_contains='approve', state=states.ChangePseudonym.initial)
+async def to_reregistration(call: CallbackQuery, state=FSMContext):
+    await states.ChangePseudonym.name.set()
+    await registration_name(message=call, state=state)
 
 
 @dp.callback_query_handler(text_contains='cancel', state='*')
@@ -309,34 +366,17 @@ async def cancel(call: Union[CallbackQuery, Message], state: FSMContext):
         return await admin_panel(call=call, state=state)
     if current_state == 'AdminMenu:credit_push':
         await state.reset_state()
-        await credit_mutation_abc(call=call, state=state)
+        return await credit_mutation_abc(call=call, state=state)
     if current_state == 'AdminMenu:credit_upd':
         await state.reset_state()
-        await credit_mutation_abc(call=call, state=state)
-    if current_state == 'AdminMenu:cancel':
-
-    if current_state == 'ChangeItem:item':
-        await states.AdminMenu.panel.set()
-        return await admin_base_change(call=call, state=state)
-    # if current_state == 'NewItem:price':
-    #     await states.AdminMenu.change.set()
-    #     await enter_name(call=call, state=state)
-    if current_state == 'NewItem:name':
-        await state.reset_state()
-        await states.AdminMenu.panel.set()
-        return await admin_base_change(call=call, state=state)
-    # if current_state == 'NewItem:approve':
-    #     await states.NewItem.name.set()
-    #     await enter_price(message=call, state=state)
-    # if current_state == 'ChangeItem:price':
-    #     await states.ChangeItem.item.set()
-    #     await mutation(call=call, state=state)
-    # if current_state == 'ChangeItem:name':
-    #     await states.ChangeItem.item.set()
-    #     await mutation(call=call, state=state)
+        return await credit_mutation_abc(call=call, state=state)
     if current_state == 'AdminMenu:instance_menu':
         await state.reset_state()
         return await admin_panel(call=call, state=state)
+    if current_state == 'ChangePseudonym:initial':
+        await state.reset_state()
+        await call.message.delete()
+        return
     if not current_state:
         return await start_choice(message=call, state=state)
 

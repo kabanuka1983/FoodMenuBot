@@ -7,18 +7,6 @@ class Order(StatesGroup):
     checkout = State()
 
 
-class NewItem(StatesGroup):
-    name = State()
-    price = State()
-    approve = State()
-
-
-class ChangeItem(StatesGroup):
-    item = State()
-    name = State()
-    price = State()
-
-
 class AdminMenu(StatesGroup):
     panel = State()
     change = State()
@@ -26,11 +14,17 @@ class AdminMenu(StatesGroup):
     credit = State()
     credit_push = State()
     credit_upd = State()
-    cancel = State()
+    # cancel = State()
     rollback = State()
 
 
 class RegMenu(StatesGroup):
     reg_name = State()
     reg_surname = State()
+
+
+class ChangePseudonym(StatesGroup):
+    initial = State()
+    name = State()
+    surname = State()
 
