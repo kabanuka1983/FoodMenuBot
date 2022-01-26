@@ -42,7 +42,8 @@ def create_new_sheet(date: str, customers: list, dishes: Dish):
     sh = gc.open(FILE_NAME)
     wks = sh.add_worksheet(title=date, index=0)
 
-    values = [['', 'С-до на конец', '=SUM(D1:E1)'],
+    values = [['', f'Меню на дату: {date}'],
+              ['', 'С-до на конец', '=SUM(D1:E1)'],
               ['', 'Всего сумма', '=SUM(D1:E1)'],
               ['', 'С-до на начало', '=SUM(D1:E1)'],
               ['', 'Всего кол-во', '=SUM(D1:E1)']]
