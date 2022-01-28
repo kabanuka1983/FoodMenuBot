@@ -10,10 +10,10 @@ async def start_keyboard():
     return markup
 
 
-async def dishes_menu_keyboard(dish):
+async def dishes_menu_keyboard(dish_id):
     markup = InlineKeyboardMarkup(row_width=2)
-    markup.row(InlineKeyboardButton(text='+', callback_data=f'plus{dish}'),
-               InlineKeyboardButton(text='-', callback_data=f'minus{dish}'))
+    markup.row(InlineKeyboardButton(text='+', callback_data=f'plus{dish_id}'),
+               InlineKeyboardButton(text='-', callback_data=f'minus{dish_id}'))
     return markup
 
 

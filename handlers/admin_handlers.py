@@ -63,7 +63,7 @@ async def admin_base_change(call: CallbackQuery, state: FSMContext):
 async def menu_parsing(message: Message, state: FSMContext):
     markup = await cancel_keyboard()
     food_list = [s.strip() for s in message.text.split('\n') if len(s.strip()) > 0]
-    check_food_list = [s for s in food_list if not re.match(r'[\s\w+]* \d+$', s)]
+    check_food_list = [s for s in food_list if not re.match(r'(^.+)( \d+)$', s)]
     order: dict = await state.get_data()
     if len(check_food_list) == 0:
         current_state = await state.get_state()
@@ -71,10 +71,11 @@ async def menu_parsing(message: Message, state: FSMContext):
         date_str = date.strftime('%d %m %Y')
         if current_state == 'AdminMenu:rollback':
             rollback_dict = get_rollback(date=date_str)
-            for p, c in rollback_dict.items():
-                customer = await db.credit_up(p, c, pseudonym=True)
-                text = f'{p}, твой сегодняшний заказ был отменен, на счет было возвращено {c} грн.'
-                await bot.send_message(chat_id=customer.customer_id, text=text)
+            if rollback_dict:
+                for p, c in rollback_dict.items():
+                    customer = await db.credit_up(p, c)
+                    text = f'{p}, твой сегодняшний заказ был отменен, на счет было возвращено {c} грн.'
+                    await bot.send_message(chat_id=customer.customer_id, text=text)
             delete_worksheet(date_str)
         await db.del_dish_table()
         update_strings = ''

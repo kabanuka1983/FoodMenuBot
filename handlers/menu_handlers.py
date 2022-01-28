@@ -139,9 +139,13 @@ async def start_choice(message: Union[CallbackQuery, Message], state: FSMContext
 @dp.callback_query_handler(text_contains='info', state=states.Order.main)
 async def info(call: CallbackQuery, state=FSMContext):
     await bot.answer_callback_query(call.id)
+    markup = await cancel_keyboard()
     data: dict = await state.get_data()
+    await states.Order.info.set()
+
     text = '/change_reg_name'
-    order_message = await call.message.edit_text(text=text)
+    order_message = await call.message.edit_text(text=text, reply_markup=markup)
+
     data.update({'order_message': [order_message]})
     await state.set_data(data)
 
@@ -170,8 +174,8 @@ async def dishes_choice(call: CallbackQuery, state: FSMContext):
         except:
             pass
         for dish in db_dishes:
-            markup = await dishes_menu_keyboard(dish.name)
-            order_dish = order.get(dish.name)
+            markup = await dishes_menu_keyboard(dish_id=dish.id)
+            order_dish = order.get(dish.id)
             quantity = None
             if order_dish:
                 quantity = order_dish[1]
@@ -180,15 +184,15 @@ async def dishes_choice(call: CallbackQuery, state: FSMContext):
             else:
                 text_item = f'{dish.name}: {dish.price} грн.'
             menu_message = await call.message.answer(text=text_item, reply_markup=markup, disable_notification=True)
-            order.update({f'{dish.name}': [menu_message, quantity, dish.price]})
+            order.update({dish.id: [menu_message, quantity, dish.price, dish.name]})
 
         order_string = ''
         total = 0
         for k, v in order.items():
             quantity = v[1]
             if quantity:
-                dish = get_dish_from_list(db_dishes=db_dishes, dish=k)
-                order_string += f'{k} {dish.price}x{quantity}: {dish.price * quantity}грн.\n'
+                dish = get_dish_from_list_by_id(db_dishes=db_dishes, dish_id=k)
+                order_string += f'{v[3]} {dish.price}x{quantity}: {dish.price * quantity}грн.\n'
                 total += dish.price * quantity
         text = f'Ваш выбор \n\n{order_string}\nИтоговая стоимость {total} грн.'
         markup1 = await approval_keyboard()
@@ -207,7 +211,7 @@ async def dishes_choice(call: CallbackQuery, state: FSMContext):
 @dp.callback_query_handler(text_contains='plus', state=states.Order.dishes_dict)
 async def plus(call: CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(call.id)
-    call_dish = call.data[4:]
+    call_dish = int(call.data[4:])
     markup = await dishes_menu_keyboard(call_dish)
     order: dict = await state.get_data()
     call_list = order.get(call_dish)
@@ -217,9 +221,9 @@ async def plus(call: CallbackQuery, state: FSMContext):
         call_quantity += 1
     else:
         call_quantity = 1
-    text_item = f'{call_dish}: {call_price}грн. ✅ x {call_quantity}'
+    text_item = f'{call_list[3]}: {call_price}грн. ✅ x {call_quantity}'
     call_list[1] = call_quantity
-    order.update({f'{call_dish}': call_list})
+    order.update({call_dish: call_list})
     await call.message.edit_text(text=text_item, reply_markup=markup)
     await state.set_data(order)
     await mutate_order_message(state=state)
@@ -228,7 +232,7 @@ async def plus(call: CallbackQuery, state: FSMContext):
 @dp.callback_query_handler(text_contains='minus', state=states.Order.dishes_dict)
 async def minus(call: CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(call.id)
-    call_dish = call.data[5:]
+    call_dish = int(call.data[5:])
     markup = await dishes_menu_keyboard(call_dish)
     order: dict = await state.get_data()
     call_list = order.get(call_dish)
@@ -236,12 +240,12 @@ async def minus(call: CallbackQuery, state: FSMContext):
     call_price = call_list[2]
     if call_quantity and call_quantity > 1:
         call_quantity -= 1
-        text_item = f'{call_dish}: {call_price}грн. ✅ x {call_quantity}'
+        text_item = f'{call_list[3]}: {call_price}грн. ✅ x {call_quantity}'
     elif call_quantity is None or call_quantity <= 1:
         call_quantity = 0
-        text_item = f'{call_dish}: {call_price}грн.'
+        text_item = f'{call_list[3]}: {call_price}грн.'
     call_list[1] = call_quantity
-    order.update({f'{call_dish}': call_list})
+    order.update({call_dish: call_list})
     await call.message.edit_text(text=text_item, reply_markup=markup)
     await state.set_data(order)
     await mutate_order_message(state=state)
@@ -252,11 +256,12 @@ async def mutate_order_message(state: FSMContext):
     mutate_message = order.pop('order_message')
     order_string = ''
     total = 0
-    for k, v in order.items():
+    for _, v in order.items():
         quantity = v[1]
         if quantity:
             price = v[2]
-            order_string += f'{k} {price}x{quantity}: {price * quantity}грн.\n'
+            dish_name = v[3]
+            order_string += f'{dish_name} {price}x{quantity}: {price * quantity}грн.\n'
             total += price * quantity
     text = f'Ваш выбор \n\n{order_string}\nИтоговая стоимость {total} грн.'
     markup1 = await approval_keyboard()
@@ -278,8 +283,9 @@ async def approve(call: CallbackQuery, state: FSMContext):
     for k, v in order.items():
         quantity = v[1]
         if quantity:
-            dish = get_dish_from_list(db_dishes=db_dishes, dish=k)
-            order_string += f'{k} {dish.price}x{quantity}: {dish.price * quantity}грн.\n'
+            dish_name = v[3]
+            dish = get_dish_from_list_by_id(db_dishes=db_dishes, dish_id=k)
+            order_string += f'{dish_name} {dish.price}x{quantity}: {dish.price * quantity}грн.\n'
             total += dish.price * quantity
         message = v[0]
         await message.delete()
@@ -290,7 +296,7 @@ async def approve(call: CallbackQuery, state: FSMContext):
         current_total = 0
         for d, q in current_order_dict.items():
             if q:
-                dish = get_dish_from_list(db_dishes=db_dishes, dish=d)
+                dish = get_dish_from_list_by_name(db_dishes=db_dishes, dish=d)
                 current_order_string += f'{d} {dish.price}x{q}: {dish.price * q}грн.\n'
                 current_total += dish.price * q
         text = f'Вы уже сделали заказ сегодня\nПодтвердите, чтобы отменить текущий заказ и принять новый\n❌\n' \
@@ -355,10 +361,10 @@ async def cancel(call: Union[CallbackQuery, Message], state: FSMContext):
         await call.message.delete()
         await states.Order.dishes_dict.set()
         return await dishes_choice(call=call, state=state)
-    if current_state == 'AdminMenu:change':
+    if current_state == 'AdminMenu:change' or current_state == 'AdminMenu:rollback':
         await state.reset_state()
         return await admin_panel(call=call, state=state)
-    if current_state == 'AdminMenu:panel':
+    if current_state == 'AdminMenu:panel' or current_state == 'Order:info':
         await state.reset_state()
         return await start_choice(message=call, state=state)
     if current_state == 'AdminMenu:credit':
@@ -392,7 +398,13 @@ async def delete_messages(state):
             pass
 
 
-def get_dish_from_list(db_dishes, dish):
+def get_dish_from_list_by_id(db_dishes, dish_id):
+    for d in db_dishes:
+        if d.id == dish_id:
+            return d
+
+
+def get_dish_from_list_by_name(db_dishes, dish):
     for d in db_dishes:
         if d.name == dish:
             return d
