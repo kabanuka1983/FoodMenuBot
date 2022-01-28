@@ -131,9 +131,9 @@ def add_order_to_sheet(customer, date, order: dict, dishes):
     order_range = wks.get_values(start_cell, end_cell, returnas='cell', include_tailing_empty_rows=True)
     np_range = np.array(order_range)
     order.pop('order_message')
-    for k, v in order.items():
+    for _, v in order.items():
         if v[1]:
-            order_cell = np_range[np_dishes == k][0][0].label
+            order_cell = np_range[np_dishes == v[3]][0][0].label
             wks.update_value(order_cell, v[1])
     total = wks.cell((user_cell.row + len(dishes) + 3, user_cell.col)).value_unformatted
     return int(total)

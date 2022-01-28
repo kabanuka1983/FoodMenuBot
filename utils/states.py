@@ -5,6 +5,7 @@ class Order(StatesGroup):
     main = State()
     dishes_dict = State()
     checkout = State()
+    info = State()
 
 
 class AdminMenu(StatesGroup):
@@ -14,7 +15,6 @@ class AdminMenu(StatesGroup):
     credit = State()
     credit_push = State()
     credit_upd = State()
-    # cancel = State()
     rollback = State()
 
 
@@ -27,4 +27,5 @@ class ChangePseudonym(StatesGroup):
     initial = State()
     name = State()
     surname = State()
+
 
